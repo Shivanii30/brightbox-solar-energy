@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoomed Satellite Image for Rooftop Detection</title>
+
+    <link rel="stylesheet" href="styles.css">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.12/cropper.min.css" />
+
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.12/cropper.min.js"></script>
+
+</head>
+
+<body>
+  <nav id="site-navigation" class="main-navigation site-navigation" role="navigation">
+        <div class="site-branding-left">
+            <h1 class="site-title">Bright Box.</h1>
+        </div>
+        <div class="menu-wrap">
+            <ul id="menu-menu" class="">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="about.html">About Us</a></li>
+                <li><a href="services.html">Services</a></li>
+                <li><a href="http://localhost:63342/rooftop-detection-python/BrightBox/frontend/contact/demo-01/contact/contact.html">Contact</a></li>
+            </ul>
+        </div>
+    </nav>
+    <h1>Select Your Rooftop</h1>
+    <input id="searchBar" type="text" placeholder="Enter location" />
+    <button onclick="searchLocation()">Search</button>
+
+    <div id="map"></div>
+    <div id="content">
+        <div>
+
+
+
+            <h3>Zoomed 2D Satellite Image of Selected Location:</h3>
+            <img id="satelliteImage" alt="Satellite Image" />
+        </div>
+
+        <!--Right Section -->
+
+        <div id="cropSection">
+
+            <h3>Save your rooftop with coordinates:</h3>
+           <img id="cropImage" alt="Zoomed Satellite Image" style="max-width: 600px; display:none;" />
+           <canvas id="cropCanvas" width="600" height="400" style="display: none;"></canvas>
+           <button id="cropButton" style="display:none;" onclick="cropImage()">Crop and Save Image</button>
+        </div>
+
+    </div>
+
+
+    <script>
+        // Initialize the map centered on Pune
+        const map = L.map('map').setView([18.5204, 73.8567], 12);
+
+        let coordinatesArray = [];
+
+
+
+        const satelliteLayer = L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWF5YW5razI5IiwiYSI6ImNtMmJiZjhyaTBrOGUycXFwenpsbDgxOWcifQ.SQT9mW5kL0Oa3P4ARWuFEg`, {
+            attribution: 'Map data © OpenStreetMap contributors, Imagery © Mapbox',
+            maxZoom: 22,
+            tileSize: 512,
+            zoomOffset: -1
+        });
+
+
+        const labelsLayer = L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWF5YW5razI5IiwiYSI6ImNtMmJiZjhyaTBrOGUycXFwenpsbDgxOWcifQ.SQT9mW5kL0Oa3P4ARWuFEg`, {
+            attribution: 'Map data © OpenStreetMap contributors, Imagery © Mapbox',
+            maxZoom: 30,
+            tileSize: 512,
+            zoomOffset: -1,
+            opacity:0.6
+        });
+
+        // Create a layer group to overlay the satellite and labels layers
+        const combinedLayer = L.layerGroup([satelliteLayer, labelsLayer]).addTo(map);
+
+
+        let marker;
+        let drawnRectangle = null;
+
+        // Initialize Leaflet Draw control
+        const drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: new L.FeatureGroup().addTo(map)
+            },
+            draw: {
+                rectangle: true,
+                polyline: false,
+                polygon: false,
+                circle: false,
+                marker: false
+            }
+        });
+        map.addControl(drawControl);
+
+        // Add click event listener to the map
+        map.on('click', function(e) {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+
+           // document.getElementById('coordinates').innerText = `Latitude: ${lat.toFixed(4)},Longitude: ${lng.toFixed(4)}`;
+
+            coordinatesArray.push({lat: lat.toFixed(4), lng: lng.toFixed(4)});
+            // If a marker already exists, move it; otherwise, add a new marker
+            if (marker) {
+                marker.setLatLng(e.latlng);
+            } else {
+                marker = L.marker(e.latlng).addTo(map);
+            }
+
+            // Update the satellite image with the new location
+            getSatelliteImage(lat, lng);
+        });
+
+// Event listener for rectangle creation
+map.on(L.Draw.Event.CREATED, function(event) {
+
+    document.getElementById('coordinates').innerText =
+        `Rectangle Bounds - SW: [${lat1.toFixed(4)}, ${lng1.toFixed(4)}], NE: [${lat2.toFixed(4)}, ${lng2.toFixed(4)}]`;
+
+    if (drawnRectangle) {
+        map.removeLayer(drawnRectangle); // Remove existing rectangle
+    }
+
+    drawnRectangle = event.layer;
+    map.addLayer(drawnRectangle);
+
+    // Get bounds of the drawn rectangle
+    const bounds = drawnRectangle.getBounds();
+    const southWest = bounds.getSouthWest();
+    const northEast = bounds.getNorthEast();
+    const lat1 = southWest.lat;
+    const lng1 = southWest.lng;
+    const lat2 = northEast.lat;
+    const lng2 = northEast.lng;
+
+      // Display the selected coordinates on the page
+    //document.getElementById('coordinates').textContent =
+        //`SW: (${lat1}, ${lng1}), NE: (${lat2}, ${lng2})`;
+
+     coordinatesArray.push({
+        sw: { lat: lat1.toFixed(4), lng: lng1.toFixed(4) },
+        ne: { lat: lat2.toFixed(4), lng: lng2.toFixed(4) }
+    });
+
+    // Ensure the image fetched for cropping corresponds to this rectangle
+    detectRooftopsWithinBounds(lat1, lng1, lat2, lng2);
+});
+
+
+        function getSatelliteImage(lat, lng) {
+    const zoom = 18;  // Maximum zoom level for rooftop clarity
+    
+    const tileX = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+    const tileY = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+
+    const tileUrl = `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/${zoom}/${tileX}/${tileY}?access_token=pk.eyJ1IjoibWF5YW5razI5IiwiYSI6ImNtMmJiZjhyaTBrOGUycXFwenpsbDgxOWcifQ.SQT9mW5kL0Oa3P4ARWuFEg`;
+
+    // Display the zoomed satellite image
+    const satelliteImage = document.getElementById('satelliteImage');
+    satelliteImage.src = tileUrl;
+    satelliteImage.onload = () => enableCropping(tileUrl);  // Enable cropping once the image is loaded
+}
+
+// Enable cropping functionality using cropper.js
+function enableCropping(imageUrl) {
+    const imageElement = document.getElementById('cropImage');
+    imageElement.src = imageUrl;
+    imageElement.style.display = 'block';  // Show the image for cropping
+    document.getElementById('cropButton').style.display = 'inline';  // Show the crop button
+
+    const cropper = new Cropper(imageElement, {
+        aspectRatio: NaN,
+        viewMode: 2,
+        autoCropArea: 1,
+        movable: true,
+        zoomable: true,
+        rotatable: false,
+        scalable: false
+    });
+
+    // Crop and save the image when the crop button is clicked
+    document.getElementById('cropButton').onclick = function() {
+        const canvas = cropper.getCroppedCanvas();
+        const croppedImageDataURL = canvas.toDataURL('image/png');
+        downloadImage(croppedImageDataURL);
+        saveCoordinates();
+    };
+}
+
+function saveCoordinates() {
+    // Convert the coordinates array to JSON
+    const jsonCoordinates = JSON.stringify(coordinatesArray, null, 2);
+
+    // Create a Blob from the JSON data
+    const blob = new Blob([jsonCoordinates], { type: 'application/json' });
+
+    // Create a temporary anchor element to download the file
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'coordinates.json';  // Set the file name
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);  // Clean up the DOM
+}
+
+
+
+// Save the cropped image locally
+function downloadImage(dataURL,filename) {
+    const a = document.createElement('a');
+    a.href = dataURL;
+    a.download = 'rooftop';  // The name for the saved image file
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);  // Remove the temporary anchor element
+}
+
+
+        // Function to search location using Mapbox Geocoding API
+        function searchLocation() {
+            const location = document.getElementById('searchBar').value;
+            const geocodingUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${location}.json?access_token=pk.eyJ1IjoibWF5YW5razI5IiwiYSI6ImNtMmJiZjhyaTBrOGUycXFwenpsbDgxOWcifQ.SQT9mW5kL0Oa3P4ARWuFEg`;
+
+            fetch(geocodingUrl)
+                .then(response => response.json())
+                .then(data => {
+                    const lat = data.features[0].center[1];
+                    const lng = data.features[0].center[0];
+
+                    // Move map to the searched location
+                    map.setView([lat, lng], 19);
+
+                    if (marker) {
+                        marker.setLatLng([lat, lng]);
+                    } else {
+                        marker = L.marker([lat, lng]).addTo(map);
+                    }
+
+                    getSatelliteImage(lat, lng);
+                })
+                .catch(error => {
+                    console.error('Error fetching location:', error);
+                });
+        }
+
+    </script>
+</body>
+</html>
