@@ -1,0 +1,9 @@
+flask 
+flask-cors 
+python-dotenv 
+pillow 
+opencv-python 
+shapely 
+numpy 
+matplotlib 
+requests
