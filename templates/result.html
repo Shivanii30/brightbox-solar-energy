@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bright Box — Solar Estimate</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f7f6f2;color:#1a1a1a;min-height:100vh}
+    nav{position:sticky;top:0;z-index:100;background:#fff;border-bottom:1px solid #e8e6df;padding:0 32px;height:64px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .logo{font-size:1.4rem;font-weight:700;letter-spacing:-.02em}.logo span{color:#1a8a5a}
+    nav a{text-decoration:none;font-size:.88rem;color:#1a8a5a;font-weight:500}
+    nav a:hover{text-decoration:underline}
+    .page{max-width:940px;margin:0 auto;padding:36px 24px 80px}
+    h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;margin-bottom:6px}
+    .loc{font-size:.85rem;color:#777;display:flex;align-items:center;gap:6px;margin-bottom:28px}
+    .dot{width:8px;height:8px;border-radius:50%;background:#1a8a5a;flex-shrink:0}
+
+    /* confidence banner */
+    .conf-bar{border-radius:12px;padding:14px 18px;margin-bottom:24px;display:flex;align-items:center;gap:14px;border:1px solid}
+    .conf-bar.high{background:#e6f6ef;border-color:#a8ddc1}
+    .conf-bar.med {background:#fff8e0;border-color:#f5c842}
+    .conf-bar.low {background:#fdecea;border-color:#f5a0a0}
+    .conf-score{font-size:1.6rem;font-weight:700;min-width:52px}
+    .conf-bar.high .conf-score{color:#0f6040}
+    .conf-bar.med  .conf-score{color:#7a5500}
+    .conf-bar.low  .conf-score{color:#8a1000}
+    .conf-reasons{font-size:.82rem;line-height:1.6}
+
+    /* stat cards */
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin-bottom:24px}
+    .card{background:#fff;border-radius:14px;padding:20px 18px 16px;border:1px solid #e8e6df;position:relative;overflow:hidden}
+    .card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:#1a8a5a;border-radius:14px 14px 0 0}
+    .card.warn::before{background:#f5a623}
+    .card.info::before{background:#4a90d9}
+    .card .lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:#999;margin-bottom:8px;font-weight:600}
+    .card .val{font-size:1.9rem;font-weight:700;color:#1a8a5a;line-height:1}
+    .card.warn .val{color:#d4820a}
+    .card.info .val{color:#185fa5}
+    .card .unt{font-size:.78rem;color:#888;margin-top:4px}
+    .card .sub{font-size:.75rem;color:#aaa;margin-top:6px}
+
+    /* section boxes */
+    .box{background:#fff;border-radius:14px;border:1px solid #e8e6df;padding:24px;margin-bottom:16px}
+    .box h2{font-size:.95rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+    .box h2 .ico{font-size:16px}
+
+    /* roof breakdown */
+    .roof-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0ede6;font-size:.9rem}
+    .roof-row:last-child{border-bottom:none}
+    .roof-row .rk{color:#777;flex:1}
+    .roof-row .rv{font-weight:600;text-align:right}
+    .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.73rem;font-weight:600}
+    .pill-green{background:#e6f6ef;color:#0f6040}
+    .pill-yellow{background:#fff8e0;color:#8a6000}
+    .pill-red{background:#fdecea;color:#8a1000}
+
+    /* monthly chart */
+    .chart-wrap{position:relative;height:220px;margin-top:8px}
+
+    /* loss waterfall */
+    .loss-list{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .loss-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#fafaf8;border-radius:8px;font-size:.85rem}
+    .loss-item .lk{color:#666}
+    .loss-item .lv{font-weight:600;color:#c0392b}
+
+    /* savings calculator */
+    .calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+    @media(max-width:520px){.calc-grid{grid-template-columns:1fr}}
+    .field label{display:block;font-size:.75rem;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+    .field input{width:100%;padding:9px 11px;border:1.5px solid #e0ddd5;border-radius:8px;font-size:.93rem;background:#fafaf8;outline:none;transition:border-color .15s}
+    .field input:focus{border-color:#1a8a5a;background:#fff}
+    .savings-out{background:#e6f6ef;border:1px solid #a8ddc1;border-radius:12px;padding:18px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px}
+    .si .sk{font-size:.72rem;color:#3a7a5a;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+    .si .sv{font-size:1.5rem;font-weight:700;color:#0f6040}
+    .si .su{font-size:.75rem;color:#5a9a7a;margin-top:2px}
+
+    /* assumptions */
+    .assump{font-size:.82rem;color:#888;line-height:1.7;padding:0 2px}
+    .assump strong{color:#555}
+
+    /* rooftop image panel */
+    .roof-img-panel{display:flex;gap:20px;align-items:flex-start;background:#fff;border-radius:14px;border:1px solid #e8e6df;padding:18px;margin-bottom:20px}
+    .roof-img-wrap{position:relative;flex-shrink:0;width:220px}
+    .roof-img-wrap img{width:220px;height:220px;object-fit:cover;border-radius:10px;display:block;border:1px solid #e8e6df}
+    .roof-img-caption{font-size:.72rem;color:#aaa;text-align:center;margin-top:6px}
+    .roof-img-overlay{position:absolute;top:8px;left:8px;background:rgba(26,138,90,.9);color:#fff;font-size:.72rem;font-weight:600;padding:3px 8px;border-radius:20px}
+    .roof-img-stats{flex:1;display:flex;flex-direction:column;gap:10px;justify-content:center}
+    .roof-img-stats .stat-row{display:flex;align-items:baseline;gap:8px}
+    .roof-img-stats .stat-val{font-size:1.5rem;font-weight:700;color:#1a8a5a;line-height:1}
+    .roof-img-stats .stat-lbl{font-size:.78rem;color:#888}
+    .roof-img-stats .stat-sub{font-size:.75rem;color:#bbb;margin-top:2px}
+    @media(max-width:520px){.roof-img-panel{flex-direction:column}.roof-img-wrap{width:100%}.roof-img-wrap img{width:100%;height:200px}}
+    #loading{text-align:center;padding:100px 0;color:#888}
+    #results{display:none}
+    .back{display:inline-flex;align-items:center;gap:6px;margin-top:24px;color:#1a8a5a;text-decoration:none;font-size:.88rem;font-weight:500}
+    .back:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<nav>
+  <span class="logo">Bright <span>Box.</span></span>
+  <a href="/">← Analyse another rooftop</a>
+</nav>
+
+<div class="page">
+  <div id="loading">Loading your results…</div>
+  <div id="results">
+
+    <h1>Your solar estimate</h1>
+    <div class="loc"><span class="dot"></span><span id="loc-label"></span></div>
+
+    <!-- Rooftop image + quick stats -->
+    <div class="roof-img-panel" id="img-panel" style="display:none">
+      <div class="roof-img-wrap">
+        <img id="roof-img" src="" alt="Your cropped rooftop" />
+        <div class="roof-img-overlay" id="img-orient-badge"></div>
+        <div class="roof-img-caption">Your cropped rooftop</div>
+      </div>
+      <div class="roof-img-stats">
+        <div>
+          <div class="stat-row">
+            <span class="stat-val" id="qs-usable">—</span>
+            <span class="stat-lbl">m² usable</span>
+          </div>
+          <div class="stat-sub" id="qs-breakdown"></div>
+        </div>
+        <div>
+          <div class="stat-row">
+            <span class="stat-val" id="qs-panels">—</span>
+            <span class="stat-lbl">panels · <span id="qs-kw"></span></span>
+          </div>
+          <div class="stat-sub">1.65 × 0.99 m mono-PERC, 20% efficiency</div>
+        </div>
+        <div>
+          <div class="stat-row">
+            <span class="stat-val" id="qs-year">—</span>
+            <span class="stat-lbl">kWh / year</span>
+          </div>
+          <div class="stat-sub" id="qs-day"></div>
+        </div>
+        <div>
+          <div class="stat-row">
+            <span class="stat-val" id="qs-co2">—</span>
+            <span class="stat-lbl">kg CO₂ offset / year</span>
+          </div>
+          <div class="stat-sub">based on India grid: 0.82 kg CO₂/kWh</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confidence banner -->
+    <div class="conf-bar" id="conf-bar">
+      <div class="conf-score" id="conf-score"></div>
+      <div>
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:4px">Detection confidence</div>
+        <div class="conf-reasons" id="conf-reasons"></div>
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="cards">
+      <div class="card"><div class="lbl">Usable roof area</div><div class="val" id="c-usable"></div><div class="unt">m² (net)</div><div class="sub" id="c-total-sub"></div></div>
+      <div class="card warn"><div class="lbl">Obstacles removed</div><div class="val" id="c-obs"></div><div class="unt" id="c-obs-unt">m² excluded</div></div>
+      <div class="card info"><div class="lbl">Shadow removed</div><div class="val" id="c-shd"></div><div class="unt" id="c-shd-unt">m² excluded</div></div>
+      <div class="card"><div class="lbl">Panels that fit</div><div class="val" id="c-panels"></div><div class="unt" id="c-kw"></div></div>
+      <div class="card"><div class="lbl">Energy / day (avg)</div><div class="val" id="c-day"></div><div class="unt">kWh / day</div></div>
+      <div class="card warn"><div class="lbl">Energy / year</div><div class="val" id="c-year"></div><div class="unt">kWh / year</div></div>
+    </div>
+
+    <!-- Roof area breakdown -->
+    <div class="box">
+      <h2><span class="ico">🏠</span> Roof area breakdown</h2>
+      <div class="roof-row"><span class="rk">Total detected area</span><span class="rv" id="r-total"></span></div>
+      <div class="roof-row"><span class="rk">Obstacles (tanks, AC, stairs)</span><span class="rv" id="r-obs"></span></div>
+      <div class="roof-row"><span class="rk">Shadows</span><span class="rv" id="r-shd"></span></div>
+      <div class="roof-row"><span class="rk">Packing efficiency (65%)</span><span class="rv">× 0.65</span></div>
+      <div class="roof-row" style="font-weight:700"><span class="rk">Net usable for panels</span><span class="rv" id="r-usable"></span></div>
+      <div class="roof-row"><span class="rk">Roof orientation</span><span class="rv" id="r-orient"></span></div>
+      <div class="roof-row" id="r-obs-row" style="display:none"><span class="rk">Detected obstacles</span><span class="rv" id="r-obs-list" style="font-size:.8rem;text-align:right;max-width:320px"></span></div>
+      <div class="roof-row"><span class="rk">Solar data source</span><span class="rv" id="r-datasrc" style="font-size:.8rem"></span></div>
+    </div>
+
+    <!-- Monthly chart -->
+    <div class="box">
+      <h2><span class="ico">☀️</span> Monthly energy production</h2>
+      <div class="chart-wrap"><canvas id="monthly-chart"></canvas></div>
+      <div style="display:flex;gap:24px;margin-top:12px;font-size:.82rem;color:#666">
+        <span>Peak: <strong id="best-month"></strong></span>
+        <span>Monsoon low: <strong id="worst-month"></strong></span>
+      </div>
+    </div>
+
+    <!-- System losses -->
+    <div class="box">
+      <h2><span class="ico">⚡</span> System loss breakdown</h2>
+      <div class="loss-list" id="loss-list"></div>
+      <div style="margin-top:12px;padding:10px 12px;background:#fafaf8;border-radius:8px;font-size:.85rem">
+        Total system efficiency: <strong id="sys-eff"></strong> of rated capacity
+      </div>
+    </div>
+
+    <!-- Savings calculator -->
+    <div class="box">
+      <h2><span class="ico">💰</span> Financial projection</h2>
+      <div class="calc-grid">
+        <div class="field"><label>Electricity tariff (₹/kWh)</label><input type="number" id="tariff" value="7.50" min="1" max="20" step="0.25"/></div>
+        <div class="field"><label>Export rate (₹/kWh)</label><input type="number" id="export" value="3.00" min="0" max="10" step="0.25"/></div>
+        <div class="field"><label>Self-consumption (%)</label><input type="number" id="selfuse" value="70" min="0" max="100" step="5"/></div>
+        <div class="field"><label>Installation cost (₹)</label><input type="number" id="instcost" value="" id="instcost" placeholder="auto from ₹/W"/></div>
+      </div>
+      <div class="savings-out">
+        <div class="si"><div class="sk">Annual savings</div><div class="sv" id="s-annual">—</div><div class="su">₹ / year</div></div>
+        <div class="si"><div class="sk">Payback period</div><div class="sv" id="s-payback">—</div><div class="su">years</div></div>
+        <div class="si"><div class="sk">25-year net profit</div><div class="sv" id="s-25yr">—</div><div class="su">₹</div></div>
+        <div class="si"><div class="sk">CO₂ offset</div><div class="sv" id="s-co2">—</div><div class="su">kg / year</div></div>
+      </div>
+      <p style="font-size:.76rem;color:#aaa;margin-top:10px">Installation cost default: ₹45/W (India market rate 2025). PM Surya Ghar subsidy of ₹30,000 for 1–2 kW, ₹78,000 for 2–3 kW applied automatically.</p>
+    </div>
+
+    <!-- Assumptions -->
+    <div class="box">
+      <h2><span class="ico">📋</span> Assumptions &amp; margins</h2>
+      <p class="assump" id="assump-text"></p>
+    </div>
+
+    <a href="/" class="back">← Analyse another rooftop</a>
+  </div>
+</div>
+
+<script>
+const raw = sessionStorage.getItem('brightbox_result');
+if (!raw) {
+  document.getElementById('loading').innerHTML =
+    'No result found. <a href="/">Go back and analyse a rooftop first.</a>';
+} else {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('results').style.display = 'block';
+  const d = JSON.parse(raw);
+  // Show rooftop image if stored
+  const storedImg = sessionStorage.getItem('brightbox_image');
+  if (storedImg) {
+    document.getElementById('roof-img').src = storedImg;
+    document.getElementById('img-panel').style.display = 'flex';
+  }
+
+  const roof   = d.roof;
+  const solar  = d.solar;
+  const energy = d.energy;
+
+  // Location
+  document.getElementById('loc-label').textContent =
+    `${parseFloat(d.lat).toFixed(5)}, ${parseFloat(d.lng).toFixed(5)}`;
+
+  // Confidence banner
+  const conf = roof.confidence;
+  const bar  = document.getElementById('conf-bar');
+  bar.classList.add(conf >= 0.7 ? 'high' : conf >= 0.45 ? 'med' : 'low');
+  document.getElementById('conf-score').textContent = Math.round(conf * 100) + '%';
+  document.getElementById('conf-reasons').innerHTML =
+    roof.confidence_reasons.map(r => `• ${r}`).join('<br>');
+
+  // Quick stats inside image panel
+  set('qs-usable',    fmt(roof.usable_area_m2));
+  set('qs-breakdown', `${fmt(roof.total_area_m2)} m² total — ${fmt(roof.obstacle_area_m2)} m² obstacles — ${fmt(roof.shadow_area_m2)} m² shadows`);
+  set('qs-panels',    energy.panel_count.toLocaleString('en-IN'));
+  set('qs-kw',        energy.system_kw + ' kW');
+  set('qs-year',      Math.round(energy.annual_kwh).toLocaleString('en-IN'));
+  set('qs-day',       `avg ${energy.daily_avg_kwh} kWh/day · peak ${energy.best_month_kwh} kWh in ${energy.best_month}`);
+  set('qs-co2',       Math.round(energy.co2_kg_year).toLocaleString('en-IN'));
+  document.getElementById('img-orient-badge').textContent = roof.orientation + '-facing';
+
+  // Stat cards
+  set('c-usable',  fmt(roof.usable_area_m2));
+  set('c-total-sub', `of ${fmt(roof.total_area_m2)} m² total`);
+  set('c-obs',  fmt(roof.obstacle_area_m2));
+  set('c-obs-unt', `m² (${pct(roof.obstacle_pct)} of roof)`);
+  set('c-shd',  fmt(roof.shadow_area_m2));
+  set('c-shd-unt', `m² (${pct(roof.shadow_pct)} of roof)`);
+  set('c-panels', energy.panel_count.toLocaleString('en-IN'));
+  set('c-kw',    `${energy.system_kw} kW system`);
+  set('c-day',   energy.daily_avg_kwh);
+  set('c-year',  Math.round(energy.annual_kwh).toLocaleString('en-IN'));
+
+  // Roof breakdown
+  set('r-total',  `${fmt(roof.total_area_m2)} m²`);
+  set('r-obs',    `−${fmt(roof.obstacle_area_m2)} m²`);
+  set('r-shd',    `−${fmt(roof.shadow_area_m2)} m²`);
+  set('r-usable', `${fmt(roof.usable_area_m2)} m²`);
+  set('r-datasrc', solar.data_source);
+
+  const orientBadge = orientClass(roof.orientation);
+  document.getElementById('r-orient').innerHTML =
+    `<span class="pill ${orientBadge}">${roof.orientation} (${roof.orientation_deg}°)</span>`;
+
+  // Monthly chart
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monsoon = [5,6,7,8]; // 0-indexed
+  const bgColors = months.map((_,i) => monsoon.includes(i) ? '#93c5fd' : '#1a8a5a');
+  new Chart(document.getElementById('monthly-chart'), {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'kWh',
+        data: energy.monthly_kwh,
+        backgroundColor: bgColors,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw} kWh` } }
+      },
+      scales: {
+        y: { grid: { color: '#f0ede6' }, ticks: { font: { size: 11 } } },
+        x: { grid: { display: false },  ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+  set('best-month',  `${energy.best_month} (${energy.best_month_kwh} kWh)`);
+  set('worst-month', `${energy.worst_month} (${energy.worst_month_kwh} kWh)`);
+
+  // Loss breakdown
+  const lb = energy.loss_breakdown;
+  const lossItems = [
+    ['Temperature', lb.temperature_loss_pct],
+    ['Dust / soiling', lb.dust_loss_pct],
+    ['Inverter',    lb.inverter_loss_pct],
+    ['Wiring',      lb.wiring_loss_pct],
+    ['Mismatch',    lb.mismatch_loss_pct],
+    ['Availability',lb.availability_loss_pct],
+  ];
+  document.getElementById('loss-list').innerHTML = lossItems.map(([k,v]) =>
+    `<div class="loss-item"><span class="lk">${k}</span><span class="lv">−${v}%</span></div>`
+  ).join('');
+  set('sys-eff', `${Math.round(energy.system_loss_factor * 100)}%`);
+
+  // Savings calculator
+  const instDefault = Math.round(energy.system_kw * 45000);
+  document.getElementById('instcost').value = instDefault;
+
+  function subsidy(kw) {
+    if (kw <= 1) return 30000;
+    if (kw <= 2) return 60000;
+    if (kw <= 3) return 78000;
+    return 78000;
+  }
+
+  function recalc() {
+    const tariff   = parseFloat(document.getElementById('tariff').value)   || 7.5;
+    const exp      = parseFloat(document.getElementById('export').value)   || 3.0;
+    const self_pct = parseFloat(document.getElementById('selfuse').value)  / 100 || 0.7;
+    const cost     = parseFloat(document.getElementById('instcost').value) || instDefault;
+
+    const annualKwh = energy.annual_kwh;
+    const selfKwh   = annualKwh * self_pct;
+    const expKwh    = annualKwh * (1 - self_pct);
+    const annual    = selfKwh * tariff + expKwh * exp;
+    const netCost   = cost - subsidy(energy.system_kw);
+    const payback   = netCost / annual;
+    const net25     = annual * 25 - netCost;
+
+    set('s-annual',  '₹' + Math.round(annual).toLocaleString('en-IN'));
+    set('s-payback', isFinite(payback) ? payback.toFixed(1) : '—');
+    set('s-25yr',    '₹' + Math.round(net25).toLocaleString('en-IN'));
+    set('s-co2',     Math.round(energy.co2_kg_year).toLocaleString('en-IN'));
+  }
+  ['tariff','export','selfuse','instcost'].forEach(id =>
+    document.getElementById(id).addEventListener('input', recalc));
+  recalc();
+
+  // Assumptions
+  const confPct = Math.round((1 - conf) * 100);
+  document.getElementById('assump-text').innerHTML = `
+    <strong>Roof detection</strong> uses OpenCV Otsu thresholding (Phase 1 CV2 engine). 
+    Obstacle masking targets dark structures, metallic objects, and bright concrete patches via HSV colour ranges. 
+    Shadow detection uses LAB luminance adaptive thresholding. 
+    These methods have an estimated ±${confPct + 15}% error on roof area.<br><br>
+    <strong>Solar irradiance</strong> from ${solar.data_source}.
+    Annual total: ${solar.annual_kwh_m2} kWh/m². 
+    Monsoon months (Jun–Sep) account for ${pct(solar.monsoon_loss_pct)} of annual radiation loss.<br><br>
+    <strong>Energy model</strong> assumes ${Math.round(energy.system_loss_factor * 100)}% system efficiency after all losses, 
+    ${energy.loss_breakdown.orientation_factor * 100}% orientation factor (${roof.orientation}-facing), 
+    and 0.5%/year panel degradation. 25-year total: ${Math.round(energy.year25_kwh).toLocaleString('en-IN')} kWh.<br><br>
+    <strong>Accuracy target</strong>: Phase 1 engine — approximately 70–78%. 
+    Phase 2 (SAM + YOLOv8 obstacle classifier) will improve this to 85–90%.
+  `;
+}
+
+function set(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function fmt(n) { return parseFloat(n).toLocaleString('en-IN', {maximumFractionDigits:1}); }
+function pct(n) { return Math.round(n * 100) + '%'; }
+function orientClass(o) {
+  if (['S','SE','SW'].includes(o)) return 'pill-green';
+  if (['E','W'].includes(o))       return 'pill-yellow';
+  return 'pill-red';
+}
+</script>
+</body>
+</html>
