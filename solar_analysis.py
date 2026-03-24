@@ -1,18 +1,3 @@
-"""
-solar_analysis.py — BrightBox Phase 1 + YOLO analysis engine
-
-Obstacle detection:
-  - Primary: YOLOv8n ONNX (cv2.dnn / onnxruntime) — no ultralytics needed at runtime
-  - Fallback: HSV colour masking (used when yolov8n.onnx is not present)
-
-Everything else:
-  - Shadow detection    : LAB luminance adaptive thresholding
-  - Solar irradiance    : NASA POWER 10-year climatology (MNRE fallback)
-  - Energy model        : physics-based losses (temperature, dust, inverter, wiring, degradation)
-  - Orientation         : inferred from minimum bounding rectangle
-  - Confidence scoring  : image quality + detection certainty
-"""
-
 import math
 import os
 import logging
@@ -178,8 +163,8 @@ def _load_yolo():
 def detect_obstacles_yolo(image_bgr: np.ndarray,
                            roof_contour,
                            mpp: float = 0.6,
-                           conf_threshold: float = 0.35,
-                           iou_threshold:  float = 0.45) -> tuple:
+                           conf_threshold: float = 0.20,
+                           iou_threshold:  float = 0.40) -> tuple:
     """
     Runs YOLOv8n inference via cv2.dnn on the cropped rooftop image.
     Returns (obstacle_mask, obstacle_area_px, labels_list).
@@ -366,14 +351,20 @@ def detect_shadows(image_bgr, roof_contour, obstacle_mask):
 
     lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
     L   = lab[:, :, 0]
+
+    # Block size must be odd and scale with image — small images need smaller blocks
+    block = max(11, min(31, (min(h, w) // 20) | 1))  # odd, 11–31
+
     thresh = cv2.adaptiveThreshold(
         L, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, blockSize=31, C=8)
+        cv2.THRESH_BINARY_INV, blockSize=block, C=8)
 
     thresh = cv2.bitwise_and(thresh, thresh, mask=roof_mask)
     thresh = cv2.bitwise_and(thresh, cv2.bitwise_not(obstacle_mask))
 
-    el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    # Kernel also scales with image
+    k_size = max(3, min(7, min(h, w) // 80))
+    el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_size, k_size))
     shadow_mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, el, iterations=1)
     return shadow_mask, float(np.sum(shadow_mask > 0))
 
@@ -402,31 +393,32 @@ def compute_confidence(image_bgr, roof_px, obstacle_pct, shadow_pct):
     reasons = []
     score   = 1.0
 
+    # Resolution check — after upscaling this should pass
     if total < 40_000:
         score -= 0.20
-        reasons.append("Very low resolution — zoom in more")
-    elif total < 100_000:
-        score -= 0.08
-        reasons.append("Moderate resolution")
+        reasons.append("Very low resolution — try zooming in on the map before cropping")
+    elif total < 160_000:
+        score -= 0.05
+        reasons.append("Moderate resolution — tighter crop improves accuracy")
 
     roof_frac = (roof_px / total) if total else 0
     if roof_frac < 0.10:
         score -= 0.20
-        reasons.append("Roof too small in frame — crop more tightly")
-    elif roof_frac < 0.25:
-        score -= 0.08
-        reasons.append("Roof covers a small portion of the image")
+        reasons.append("Roof too small in frame — crop more tightly around just your rooftop")
+    elif roof_frac < 0.30:
+        score -= 0.06
+        reasons.append("Crop includes area beyond the rooftop — tighter crop improves accuracy")
 
     if obstacle_pct > 0.45:
         score -= 0.15
-        reasons.append(f"Very high obstacle coverage ({obstacle_pct:.0%})")
+        reasons.append(f"Very high obstacle coverage ({obstacle_pct:.0%}) — usable area uncertain")
     elif obstacle_pct > 0.25:
         score -= 0.06
-        reasons.append(f"Significant obstacles detected ({obstacle_pct:.0%})")
+        reasons.append(f"Significant obstacles detected ({obstacle_pct:.0%} of roof area)")
 
     if shadow_pct > 0.50:
         score -= 0.15
-        reasons.append(f"Heavy shading ({shadow_pct:.0%})")
+        reasons.append(f"Heavy shading ({shadow_pct:.0%}) — energy output significantly reduced")
     elif shadow_pct > 0.25:
         score -= 0.06
         reasons.append(f"Moderate shading ({shadow_pct:.0%})")
@@ -434,13 +426,11 @@ def compute_confidence(image_bgr, roof_px, obstacle_pct, shadow_pct):
     gray      = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
     if sharpness < 40:
-        score -= 0.12
-        reasons.append("Blurry satellite tile")
-    elif sharpness < 100:
-        score -= 0.04
+        score -= 0.10
+        reasons.append("Low image contrast — satellite tile quality may be poor here")
 
     if not reasons:
-        reasons.append("Good image quality and clear roof boundary")
+        reasons.append("Good image quality and clear roof boundary detected")
 
     return round(max(0.05, min(1.0, score)), 2), reasons
 
