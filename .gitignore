@@ -1,1 +1,7 @@
 venv/
+env/
+artifacts/
+uploads/
+__pycache__/
+*.pyc
+.env

@@ -1,0 +1,13 @@
+{
+  "id": "replace-with-sample-id",
+  "image": "image.png",
+  "lat": 18.5204,
+  "lng": 73.8567,
+  "zoom": 19,
+  "notes": "Add short review notes here: roof type, obstacles, shadows, crop quality.",
+  "expected": {
+    "usable_area_m2": 0.0,
+    "panel_count": 0,
+    "annual_kwh": 0.0
+  }
+}

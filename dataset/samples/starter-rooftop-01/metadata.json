@@ -1,0 +1,13 @@
+{
+  "id": "starter-rooftop-01",
+  "image": "1.jpg",
+  "lat": 18.5204,
+  "lng": 73.8567,
+  "zoom": 19,
+  "notes": "Starter sample copied from the repo root. Replace expected values after manual review.",
+  "expected": {
+    "usable_area_m2": 0.0,
+    "panel_count": 0,
+    "annual_kwh": 0.0
+  }
+}

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bright Box — Select Your Rooftop</title>
+
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.12/cropper.min.css" />
+
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.12/cropper.min.js"></script>
+</head>
+
+<body>
+  <nav id="site-navigation" class="main-navigation site-navigation" role="navigation">
+    <div class="site-branding-left">
+      <h1 class="site-title">Bright Box.</h1>
+    </div>
+    <div class="menu-wrap">
+      <ul id="menu-menu">
+        <li><a href="/">Home</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <h1>Select Your Rooftop</h1>
+  <input id="searchBar" type="text" placeholder="Enter a location (e.g. Pune, India)" />
+  <button onclick="searchLocation()">Search</button>
+  <div id="search-status" style="font-size:0.85rem;color:#888;margin:4px 0 0 2px;min-height:18px;"></div>
+
+  <div id="map"></div>
+
+  <div id="content">
+    <div>
+      <h3>Satellite image of selected location</h3>
+      <div id="tile-status" style="font-size:0.85rem;color:#888;margin-bottom:8px;min-height:18px;"></div>
+      <img id="satelliteImage" alt="Satellite Image" style="max-width:100%;" />
+    </div>
+
+    <div id="cropSection">
+      <h3>Crop your rooftop, then analyse</h3>
+      <p style="font-size:0.85rem;color:#666;margin:0 0 12px;">
+        Click on the map to load the satellite tile, then drag the crop box around your rooftop and click Analyse.
+      </p>
+      <img id="cropImage" alt="Crop area" style="max-width:600px;display:none;" />
+      <canvas id="cropCanvas" width="600" height="400" style="display:none;"></canvas>
+      <br/>
+      <button id="cropButton" style="display:none;">Crop and Analyse</button>
+    </div>
+  </div>
+
+  <script>
+    // ── Map setup — ESRI World Imagery (free, no key) ──────────────────────
+    const map = L.map('map').setView([18.5204, 73.8567], 14);
+
+    const satelliteLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, GeoEye, Earthstar Geographics',
+        maxZoom: 19
+      }
+    );
+
+    // OSM labels on top for street names
+    const labelsLayer = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 19,
+        opacity: 0.8
+      }
+    );
+
+    L.layerGroup([satelliteLayer, labelsLayer]).addTo(map);
+
+    let marker = null;
+    let currentLat = 18.5204;
+    let currentLng = 73.8567;
+    let activeCropper = null;
+
+    // ── Draw control ───────────────────────────────────────────────────────
+    const drawnItems = new L.FeatureGroup().addTo(map);
+    const drawControl = new L.Control.Draw({
+      edit: { featureGroup: drawnItems },
+      draw: { rectangle: true, polyline: false, polygon: false, circle: false, marker: false }
+    });
+    map.addControl(drawControl);
+
+    // ── Map click → load satellite tile ───────────────────────────────────
+    map.on('click', function(e) {
+      currentLat = e.latlng.lat;
+      currentLng = e.latlng.lng;
+
+      if (marker) { marker.setLatLng(e.latlng); }
+      else { marker = L.marker(e.latlng).addTo(map); }
+
+      loadSatelliteTile(currentLat, currentLng);
+    });
+
+    // Rectangle draw: use centre of drawn bounds
+    map.on(L.Draw.Event.CREATED, function(e) {
+      drawnItems.clearLayers();
+      drawnItems.addLayer(e.layer);
+      const bounds = e.layer.getBounds();
+      const centre = bounds.getCenter();
+      currentLat = centre.lat;
+      currentLng = centre.lng;
+      loadSatelliteTile(currentLat, currentLng);
+    });
+
+    // ── Load 3×3 stitched satellite tile via Flask proxy ─────────────────
+    function loadSatelliteTile(lat, lng) {
+      const zoom = 19;  // zoom 19 = ~0.3m/pixel — much better for obstacle detection
+      const tileX = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+      const tileY = Math.floor(
+        (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI)
+        / 2 * Math.pow(2, zoom)
+      );
+
+      document.getElementById('tile-status').textContent = 'Loading high-resolution satellite image…';
+
+      // Request a 3×3 grid stitch from the backend — 9 tiles = 768×768px
+      const stitchUrl = `/tile-stitch?z=${zoom}&x=${tileX}&y=${tileY}`;
+      const img = document.getElementById('satelliteImage');
+      img.src = stitchUrl;
+      img.onload = () => {
+        document.getElementById('tile-status').textContent = 'Image loaded. Crop tightly around your rooftop.';
+        enableCropping(stitchUrl);
+      };
+      img.onerror = () => {
+        document.getElementById('tile-status').textContent = 'Failed to load image. Try a different location.';
+      };
+    }
+
+    // ── Cropper.js setup ───────────────────────────────────────────────────
+    function enableCropping(imageUrl) {
+      const imageElement = document.getElementById('cropImage');
+
+      // Destroy previous cropper instance if it exists
+      if (activeCropper) {
+        activeCropper.destroy();
+        activeCropper = null;
+      }
+
+      imageElement.src = imageUrl;
+      imageElement.style.display = 'block';
+      document.getElementById('cropButton').style.display = 'inline';
+
+      // Wait for image to be ready before initialising cropper
+      imageElement.onload = function() {
+        activeCropper = new Cropper(imageElement, {
+          aspectRatio: NaN,
+          viewMode: 1,
+          autoCropArea: 0.8,
+          movable: true,
+          zoomable: false,
+          rotatable: false,
+          scalable: false
+        });
+      };
+    }
+
+    // ── Crop → POST to /analyze → redirect to /result ─────────────────────
+    document.getElementById('cropButton').addEventListener('click', async function() {
+      if (!activeCropper) {
+        alert('Please click on the map first to load a satellite tile.');
+        return;
+      }
+
+      const btn = this;
+      btn.textContent = 'Analysing…';
+      btn.disabled = true;
+
+      const canvas = activeCropper.getCroppedCanvas({ maxWidth: 1024, maxHeight: 1024 });
+      if (!canvas) {
+        alert('Could not read the cropped image. Please try again.');
+        btn.textContent = 'Crop and Analyse';
+        btn.disabled = false;
+        return;
+      }
+
+      // Save the cropped image as base64 so the results page can show it
+      const imageDataUrl = canvas.toDataURL('image/png');
+      sessionStorage.setItem('brightbox_image', imageDataUrl);
+
+      canvas.toBlob(async function(blob) {
+        const formData = new FormData();
+        formData.append('image', blob, 'rooftop.png');
+        formData.append('lat', currentLat);
+        formData.append('lng', currentLng);
+        formData.append('zoom', 19);
+
+        try {
+          const response = await fetch('/analyze', { method: 'POST', body: formData });
+          if (!response.ok) throw new Error(`Server error ${response.status}`);
+          const result = await response.json();
+          sessionStorage.setItem('brightbox_result', JSON.stringify(result));
+          window.location.href = '/result';
+        } catch (err) {
+          alert('Analysis failed: ' + err.message);
+          btn.textContent = 'Crop and Analyse';
+          btn.disabled = false;
+        }
+      }, 'image/png');
+    });
+
+    // ── Geocoding — Nominatim (OpenStreetMap, free, no key) ───────────────
+    async function searchLocation() {
+      const query = document.getElementById('searchBar').value.trim();
+      if (!query) return;
+
+      const status = document.getElementById('search-status');
+      status.textContent = 'Searching…';
+
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+        const resp = await fetch(url, {
+          headers: { 'Accept-Language': 'en', 'User-Agent': 'BrightBox-SolarApp/1.0' }
+        });
+        const data = await resp.json();
+
+        if (!data.length) {
+          status.textContent = 'Location not found. Try a more specific name.';
+          return;
+        }
+
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        currentLat = lat;
+        currentLng = lng;
+
+        map.setView([lat, lng], 19);
+        if (marker) { marker.setLatLng([lat, lng]); }
+        else { marker = L.marker([lat, lng]).addTo(map); }
+
+        status.textContent = `Found: ${data[0].display_name.split(',').slice(0,3).join(',')}`;
+        loadSatelliteTile(lat, lng);
+      } catch (err) {
+        status.textContent = 'Search failed. Check your connection.';
+      }
+    }
+
+    // Allow pressing Enter in the search box
+    document.getElementById('searchBar').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') searchLocation();
+    });
+  </script>
+</body>
+</html>
